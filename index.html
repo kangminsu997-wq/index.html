@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Choose wisely 😏</title>
+  <style>
+    :root{
+      --card-bg: rgba(255,255,255,0.92);
+      --text: #111;
+      --yes: #ff4d6d;
+      --no: #cfd4da;
+      --shadow: 0 18px 50px rgba(0,0,0,0.18);
+      --radius: 18px;
+    }
+
+    *{ box-sizing: border-box; }
+    body{
+      margin:0;
+      min-height:100svh;
+      display:grid;
+      place-items:center;
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans KR", Arial, sans-serif;
+      color: var(--text);
+      overflow:hidden;
+    }
+
+    /* 배경: 이미지 or 그라데이션 */
+    .bg{
+      position: fixed;
+      inset: 0;
+      background-size: cover;
+      background-position: center;
+      filter: saturate(1.05);
+      transform: scale(1.02);
+    }
+    .bg::after{
+      content:"";
+      position:absolute;
+      inset:0;
+      /* 살짝 뿌연 오버레이 */
+      background: rgba(0,0,0,0.18);
+      backdrop-filter: blur(2px);
+    }
+
+    .card{
+      position: relative;
+      width: min(92vw, 520px);
+      padding: 26px 22px 22px;
+      background: var(--card-bg);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      z-index: 1;
+    }
+
+    .title{
+      font-size: 18px;
+      line-height: 1.45;
+      font-weight: 700;
+      margin: 0 0 18px;
+      word-break: keep-all;
+    }
+
+    .buttons{
+      position: relative;
+      height: 54px; /* 버튼들이 움직일 공간 */
+      display:flex;
+      justify-content:center;
+      gap: 14px;
+      align-items:center;
+    }
+
+    button{
+      border: 0;
+      cursor: pointer;
+      height: 44px;
+      padding: 0 18px;
+      border-radius: 999px;
+      font-weight: 800;
+      font-size: 15px;
+      transition: transform .08s ease;
+      user-select: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    #yesBtn{
+      background: var(--yes);
+      color: white;
+    }
+    #yesBtn:active{ transform: scale(0.98); }
+
+    /* No 버튼은 절대좌표로 옮겨다니게 */
+    #noBtn{
+      position: absolute;
+      left: calc(50% + 90px);
+      top: 50%;
+      transform: translate(-50%, -50%);
+      background: var(--no);
+      color: #222;
+    }
+    #noBtn:active{ transform: translate(-50%, -50%) scale(0.98); }
+
+    .toast{
+      margin-top: 14px;
+      font-size: 13px;
+      opacity: 0.75;
+    }
+
+    .result{
+      display:none;
+      margin-top: 16px;
+      padding: 14px 14px;
+      border-radius: 14px;
+      background: rgba(255,77,109,0.10);
+      border: 1px solid rgba(255,77,109,0.25);
+      font-weight: 700;
+      line-height: 1.5;
+      word-break: keep-all;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="bg" id="bg"></div>
+
+  <div class="card" id="card">
+    <p class="title" id="question">발렌타인데이에는 못만났지만… 화이트데이 같이 데이트 할래?</p>
+
+    <div class="buttons" id="btnArea">
+      <button id="yesBtn">Yes</button>
+      <button id="noBtn">No</button>
+    </div>
+
+    <div class="toast" id="hint">※ No는… 잡기 어려울걸?</div>
+    <div class="result" id="result"></div>
+  </div>
+
+  <script>
+    /** =========================
+     *  ✅ 여기만 바꾸면 커스텀 끝
+     *  ========================= */
+    const CONFIG = {
+      question: "발렌타인데이에는 못만났지만… 화이트데이 같이 데이트 할래?",
+      yesText: "좋아",
+      noText: "싫어",
+      // 배경 설정 (둘 중 하나만 쓰면 됨)
+      backgroundImageUrl: "", // 예: "https://.../bg.jpg"  (비워두면 그라데이션)
+      backgroundGradient: "linear-gradient(135deg, #ffb3c1, #ffe5ec, #c8e7ff)",
+      // Yes 눌렀을 때 메시지
+      successMessage: "오케이 😎 그럼 날짜/장소 정하자! \n(이 메시지도 원하는대로 바꿔도 돼)",
+      // No가 도망가는 난이도(숫자 작을수록 더 잘 도망감)
+      escapeDistancePx: 70,
+    };
+
+    // 적용
+    const bg = document.getElementById("bg");
+    bg.style.background = CONFIG.backgroundImageUrl
+      ? `url("${CONFIG.backgroundImageUrl}")`
+      : CONFIG.backgroundGradient;
+
+    document.getElementById("question").textContent = CONFIG.question;
+    const yesBtn = document.getElementById("yesBtn");
+    const noBtn = document.getElementById("noBtn");
+    yesBtn.textContent = CONFIG.yesText;
+    noBtn.textContent = CONFIG.noText;
+
+    const btnArea = document.getElementById("btnArea");
+    const result = document.getElementById("result");
+
+    function clamp(n, min, max){ return Math.max(min, Math.min(max, n)); }
+
+    function moveNoButtonAway(pointerX, pointerY){
+      const areaRect = btnArea.getBoundingClientRect();
+      const noRect = noBtn.getBoundingClientRect();
+
+      // 현재 no 버튼 중심
+      const noCenterX = noRect.left + noRect.width / 2;
+      const noCenterY = noRect.top + noRect.height / 2;
+
+      // 포인터 -> 버튼 방향 벡터 (도망은 반대)
+      let dx = noCenterX - pointerX;
+      let dy = noCenterY - pointerY;
+
+      // 너무 가까워서 벡터가 0에 가깝다면 랜덤
+      const len = Math.hypot(dx, dy);
+      if(len < 1){
+        dx = (Math.random() - 0.5);
+        dy = (Math.random() - 0.5);
+      } else {
+        dx /= len; dy /= len;
+      }
+
+      const escape = CONFIG.escapeDistancePx + Math.random() * 60;
+
+      // btnArea 내부 좌표로 변환 (절대좌표 기준: btnArea)
+      // noBtn은 btnArea 기준 absolute 이므로:
+      const currentLeft = parseFloat(getComputedStyle(noBtn).left) || (areaRect.width * 0.65);
+      const currentTop  = parseFloat(getComputedStyle(noBtn).top)  || (areaRect.height * 0.5);
+
+      let newLeft = currentLeft + dx * escape;
+      let newTop  = currentTop  + dy * escape;
+
+      // 경계: 버튼이 영역 밖으로 너무 나가지 않게
+      const padding = 8;
+      const minLeft = padding + noRect.width/2;
+      const maxLeft = areaRect.width - padding - noRect.width/2;
+      const minTop  = padding + noRect.height/2;
+      const maxTop  = areaRect.height - padding - noRect.height/2;
+
+      newLeft = clamp(newLeft, minLeft, maxLeft);
+      newTop  = clamp(newTop, minTop, maxTop);
+
+      noBtn.style.left = `${newLeft}px`;
+      noBtn.style.top  = `${newTop}px`;
+    }
+
+    // 데스크톱: 마우스가 다가오면 도망
+    noBtn.addEventListener("mouseenter", (e) => {
+      moveNoButtonAway(e.clientX, e.clientY);
+    });
+    noBtn.addEventListener("mousemove", (e) => {
+      // 더 촘촘히 도망가게 하고 싶으면 주석 해제
+      moveNoButtonAway(e.clientX, e.clientY);
+    });
+
+    // 모바일: 손가락이 닿기 전에 도망 (touchstart)
+    noBtn.addEventListener("touchstart", (e) => {
+      const t = e.touches[0];
+      moveNoButtonAway(t.clientX, t.clientY);
+      e.preventDefault();
+    }, { passive: false });
+
+    // 클릭 자체도 막고 도망가게
+    noBtn.addEventListener("click", (e) => {
+      moveNoButtonAway(e.clientX, e.clientY);
+      e.preventDefault();
+    });
+
+    yesBtn.addEventListener("click", () => {
+      result.style.display = "block";
+      result.textContent = CONFIG.successMessage;
+      // 버튼 잠그기(원하면)
+      yesBtn.disabled = true;
+      noBtn.disabled = true;
+      yesBtn.style.opacity = 0.9;
+      noBtn.style.opacity = 0.7;
+      document.getElementById("hint").textContent = "완료 ✅";
+    });
+  </script>
+</body>
+</html>
